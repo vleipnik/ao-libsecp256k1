@@ -1,4 +1,4 @@
-FROM emscripten/emsdk:3.1.59
+FROM emscripten/emsdk:3.1.59 as builder
 LABEL maintainer="tom wilson <tom@hyper.io>"
 
 # The working directory used by the base image is /src, so we can mount volumes to there
@@ -107,8 +107,30 @@ RUN rm /opt/aolibc/aostdio.o
 # Build aolibc for 64-bit
 RUN cd /opt/aolibc && make CC="emcc -s WASM=1 -s MEMORY64=1 -s SUPPORT_LONGJMP=1 /lua-5.3.4/src/liblua.a -I/lua-5.3.4/src"
 
+
 ENV CC='emcc -s WASM=1'
 ENV NM='/emsdk/upstream/bin/llvm-nm'
+
+#####
+# secp256k1
+#####
+COPY ./src/secp256k1 /opt/secp256k1
+
+# ENV AR=emar
+# ENV RANLIB=emranlib
+# RUN apt-get install -y autoconf automake libtool
+# RUN cd /opt/secp256k1 && ./autogen.sh
+# RUN cd /opt/secp256k1 && emconfigure ./configure --host=wasm64-unknown-emscripten --enable-static --disable-shared --disable-dependency-tracking CC="emcc" CFLAGS="-target wasm64" LDFLAGS="-target wasm64"
+# RUN cd /opt/secp256k1 && emmake make FORMAT=wasm
+
+# execute on host:
+# docker run --rm -v $(pwd):/output p3rmaw3b/ao cp /opt/secp256k1/.libs/libsecp256k1.a /output
+
+# docker run -d -i -t --platform linux/arm64 -v .:/src p3rmaw3b/ao /bin/bash
+# 
+
+# RUN mkdir -p /opt/secp256k1/.libs
+COPY ./src/libsecp256k1.a  /opt/secp256k1/.libs/libsecp256k1.a
 
 ###########################################
 ### Publish, Bundler, Process, Contract ###
