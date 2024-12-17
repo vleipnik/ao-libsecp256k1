@@ -88,7 +88,7 @@ def main():
         '__INJECT_LUA_FILES__', '\n'.join(injected_lua_files))
     
     #Generate compile target file
-    debug_print('Start to generate compile.c')
+    debug_print('Start to generate complie.c')
 
     with open('/tmp/compile.c', mode='w') as build:
         build.write(c_program)
@@ -98,10 +98,7 @@ def main():
 
     # Setup the compile command
     cmd = ['emcc', '-O3', 
-      '-g3',
-    #   '--source-map',
-      '-gsource-map',
-      '--profiling-funcs',
+      '-g2',
     #   '-s', 'MAIN_MODULE', # This is required to load dynamic libraries at runtime
       '-s', 'ASYNCIFY=1',
       '-s', 'STACK_SIZE=' + str(config.stack_size),
@@ -115,7 +112,6 @@ def main():
       '-s', 'DETERMINISTIC=1', 
       '-s', 'NODERAWFS=0', 
       '-s', 'FORCE_FILESYSTEM=1',
-      '-s', 'ASSERTIONS=1',
       '-msimd128',
       '--pre-js', '/opt/pre.js'
     ]
@@ -130,7 +126,7 @@ def main():
         cmd.extend(['-I', quote('/lua-{}-32/src'.format(os.environ.get('LUA_VERSION')))])
         cmd.extend([quote('/lua-{}-32/src/liblua.a'.format(os.environ.get('LUA_VERSION')))])
 
-
+    # Manually add the secp256k1 include directory
     cmd.extend(['-I', quote('/opt/secp256k1/include')])
 
     # Link Rust library
@@ -171,5 +167,5 @@ if __name__ == '__main__':
     main()
 
     # cleanup temporary module directory
-    # if os.path.isdir(LUAROCKS_LOCAL_MODULE_DIR):
-    #     shutil.rmtree(LUAROCKS_LOCAL_MODULE_DIR)
+    if os.path.isdir(LUAROCKS_LOCAL_MODULE_DIR):
+        shutil.rmtree(LUAROCKS_LOCAL_MODULE_DIR)

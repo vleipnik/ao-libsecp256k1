@@ -111,11 +111,10 @@ RUN cd /opt/aolibc && make CC="emcc -s WASM=1 -s MEMORY64=1 -s SUPPORT_LONGJMP=1
 ENV CC='emcc -s WASM=1'
 ENV NM='/emsdk/upstream/bin/llvm-nm'
 
-#####
-# secp256k1
-#####
-COPY ./src/secp256k1 /opt/secp256k1
-
+###############
+# Build secp256k1 for wasm64
+###############
+# COPY ./src/secp256k1 /opt/secp256k1
 # ENV AR=emar
 # ENV RANLIB=emranlib
 # RUN apt-get install -y autoconf automake libtool
@@ -125,10 +124,7 @@ COPY ./src/secp256k1 /opt/secp256k1
 
 # execute on host:
 # docker run --rm -v $(pwd):/output p3rmaw3b/ao cp /opt/secp256k1/.libs/libsecp256k1.a /output
-
 # docker run -d -i -t --platform linux/arm64 -v .:/src p3rmaw3b/ao /bin/bash
-# 
-
 # RUN mkdir -p /opt/secp256k1/.libs
 COPY ./src/libsecp256k1.a  /opt/secp256k1/.libs/libsecp256k1.a
 

@@ -53,8 +53,8 @@ def load_libraries(config: Config, definition: Definition, c_program: str, link_
     else:
         bundle_files += glob.glob('/opt/aolibc/aolibc32.a', recursive=True)
 
-    # Load 
-    bundle_files += glob.glob('/opt/secp256k1/.libs/libsecp256k1.a', recursive=True)
+    # Load libsecp256k1
+    # bundle_files += glob.glob('/opt/secp256k1/.libs/libsecp256k1.a', recursive=True)
     
     bundle_files += glob.glob('/src/libs/**/*.lua', recursive=True)
     # bundle_files += glob.glob(local_include_dir + '/**/*.so', recursive=True)
