@@ -178,116 +178,112 @@ static int lua_verify_signature(lua_State* L) {
     void* cleanup_ptrs[4] = {NULL};
     size_t cleanup_count = 0;
 
-    // Strict input validation
-    if (lua_gettop(L) != 3) {
-        lua_print(L, "Error: Expected 3 arguments (message, signature, public key)");
-        return 1;
-    }
-
+    // Get and validate inputs
     const char* message_str = luaL_checkstring(L, 1);
     const char* sig_hex_str = luaL_checkstring(L, 2);
     const char* pubkey_hex_str = luaL_checkstring(L, 3);
 
-    if (!message_str || !sig_hex_str || !pubkey_hex_str) {
-        lua_print(L, "Error: Invalid input parameters");
-        return 1;
-    }
+    // lua_printf(L, "Message: %s\n", message_str);
+    // lua_printf(L, "Signature: %s\n", sig_hex_str);
+    // lua_printf(L, "Signature hex length: %zu\n", strlen(sig_hex_str));
+    // lua_printf(L, "Public key hex length: %zu\n", strlen(pubkey_hex_str));
 
-    // Check input lengths
-    size_t msg_len = strlen(message_str);
-    size_t sig_hex_len = strlen(sig_hex_str);
-    size_t pubkey_hex_len = strlen(pubkey_hex_str);
-
-    // Validate reasonable maximum lengths to prevent memory issues
-    if (msg_len > 10000 || sig_hex_len > 256 || pubkey_hex_len > 128) {
-        lua_print(L, "Error: Input exceeds maximum length");
-        return 1;
-    }
-
-    // Allocate message hash with NULL check
     unsigned char* message_hash = (unsigned char*)safe_calloc(32, sizeof(unsigned char));
     if (!message_hash) {
-        lua_print(L, "Error: Memory allocation failed for message hash");
-        return 1;
-    }
-    cleanup_ptrs[cleanup_count++] = message_hash;
-
-    // Hash the message
-    sha256((const unsigned char*)message_str, msg_len, message_hash);
-
-    // Validate signature hex string length
-    size_t expected_sig_len = 128; // 64 bytes in hex
-    if (sig_hex_len != expected_sig_len) {
-        lua_print(L, "Error: Invalid signature length");
-        cleanup_memory(cleanup_ptrs, cleanup_count);
+        lua_print(L, "Memory allocation failed for message hash");
         return 1;
     }
 
-    // Convert signature from hex with strict length check
+    // Hash the message instead of copying it directly
+    sha256((const unsigned char*)message_str, strlen(message_str), message_hash);
+
+    // Print hash for debugging
+    // lua_print(L, "Message hash: ");
+    // for(int i = 0; i < 32; i++) {
+    //     lua_printf(L, "%02x", message_hash[i]);
+    // }
+
+    // Convert signature from hex
     size_t sig_len = 0;
     unsigned char* signature = hex_to_bytes(sig_hex_str, &sig_len, L);
-    if (!signature || sig_len != 64) {  // Must be exactly 64 bytes for R||S
+    if (!signature) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Invalid signature format");
+        lua_print(L, "Failed to decode signature hex");
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = signature;
+    // lua_printf(L, "Decoded signature length: %zu\n", sig_len);
+    // lua_printf(L, "Signature first bytes: %02x %02x %02x %02x\n", 
+          //  signature[0], signature[1], signature[2], signature[3]);
 
-    // Validate public key hex string length (33 bytes = 66 hex chars)
-    if (pubkey_hex_len != 66) {
-        cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Invalid public key length");
-        return 1;
-    }
-
-    // Convert public key from hex with strict length check
+    // Convert public key from hex
     size_t pubkey_len = 0;
     unsigned char* pubkey = hex_to_bytes(pubkey_hex_str, &pubkey_len, L);
-    if (!pubkey || pubkey_len != 33) {
+    if (!pubkey) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Invalid public key format");
+        lua_print(L, "Failed to decode public key hex");
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = pubkey;
 
-    // Validate public key format
-    if (pubkey[0] != 0x02 && pubkey[0] != 0x03) {
-        cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Invalid public key prefix");
-        return 1;
-    }
+    // lua_printf(L, "Decoded pubkey length: %zu\n", pubkey_len);
+    // lua_printf(L, "Public key first bytes: %02x %02x %02x %02x\n", 
+    //        pubkey[0], pubkey[1], pubkey[2], pubkey[3]);
 
-    // Create secp256k1 context
+    // Create and verify the secp256k1 context
     secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
     if (!ctx) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Failed to create secp256k1 context");
+        lua_print(L, "Failed to create secp256k1 context");
         return 1;
     }
+    cleanup_ptrs[cleanup_count++] = ctx;
 
-    // Parse the signature using compact format
+    // Parse the signature
     secp256k1_ecdsa_signature sig;
-    if (secp256k1_ecdsa_signature_parse_compact(ctx, &sig, signature) != 1) {
-        secp256k1_context_destroy(ctx);
+    int sig_parse_result = secp256k1_ecdsa_signature_parse_der(ctx, &sig, signature, sig_len);
+    // lua_printf(L, "Signature parse result: %d\n", sig_parse_result);
+    if (sig_parse_result != 1) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Failed to parse signature");
+        lua_print(L, "Failed to parse signature");
         return 1;
     }
 
-    // Parse the public key
-    secp256k1_pubkey pubkey_obj;
-    if (secp256k1_ec_pubkey_parse(ctx, &pubkey_obj, pubkey, pubkey_len) != 1) {
-        secp256k1_context_destroy(ctx);
+    // Validate public key format before parsing
+    // lua_printf(L, "Validating public key format:\n");
+    // lua_printf(L, "- Original hex length: %zu\n", strlen(pubkey_hex_str));
+    // lua_printf(L, "- Decoded length: %zu (expected 33)\n", pubkey_len);
+    // lua_printf(L, "- Full pubkey hex: ");
+    // for(size_t i = 0; i < pubkey_len; i++) {
+    //     lua_printf(L, "%02x", pubkey[i]);
+    // }
+    // lua_printf(L, "\n");
+    
+    if (pubkey_len != 33) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Error: Failed to parse public key");
+        lua_print(L, "Public key must be 33 bytes (compressed format)");
         return 1;
     }
+    
+    if (pubkey[0] != 0x02 && pubkey[0] != 0x03) {
+        cleanup_memory(cleanup_ptrs, cleanup_count);
+        lua_print(L, "Public key must start with 0x02 or 0x03 (compressed format)");
+        return 1;
+    }
+
+    // Parse the public key with the fresh context
+    secp256k1_pubkey pubkey_obj;
+    int pubkey_parse_result = secp256k1_ec_pubkey_parse(ctx, &pubkey_obj, pubkey, pubkey_len);
+    // lua_printf(L, "Public key parse result: %d\n", pubkey_parse_result);
 
     // Verify the signature
     int verify_result = secp256k1_ecdsa_verify(ctx, &sig, message_hash, &pubkey_obj);
+    // lua_printf(L, "Verification result 2: %d\n", verify_result);
+
+    // Clean up the extra context
+    secp256k1_context_destroy(ctx);
 
     // Clean up
-    secp256k1_context_destroy(ctx);
     cleanup_memory(cleanup_ptrs, cleanup_count);
 
     // Return result
