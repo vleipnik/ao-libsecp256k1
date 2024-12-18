@@ -96,6 +96,40 @@ extern "C"
   // This line will be injected by emcc-lua as export functions to WASM declaration
   __FUNCTION_DECLARATIONS__
 
+    // This function is for debug to see an C <-> Lua stack values
+  // void dumpStack(lua_State *L) {
+  //   int i;
+  //   int stackSize = lua_gettop(L);
+  //   for (i = stackSize; i >= 1; i--) {
+  //     int stackType = lua_type(L, i);
+  //     printf("Stack[%2d-%10s]:", i, lua_typename(L, stackType));
+  //
+  //     switch (stackType) {
+  //       case LUA_TNUMBER:
+  //         printf("%f", lua_tonumber(L, i));
+  //         break;
+  //       case LUA_TBOOLEAN:
+  //         if (lua_toboolean(L, i)) {
+  //           printf("true");
+  //         } else {
+  //           printf("false");
+  //         }
+  //         break;
+  //       case LUA_TSTRING:
+  //         printf("%s", lua_tostring(L, i));
+  //         break;
+  //       case LUA_TNIL:
+  //         printf("nil");
+  //         break;
+  //       default:
+  //         printf("%s", lua_typename(L, stackType));
+  //         break;
+  //     }
+  //     printf("\n");
+  //   }
+  //   printf("\n");
+  // }
+
   static void* safe_calloc(size_t num_elements, size_t element_size) {
     void* ptr = calloc(num_elements, element_size);
     if (!ptr) {
@@ -109,7 +143,6 @@ static unsigned char* hex_to_bytes(const char* hex, size_t* out_len, lua_State* 
     size_t hex_len = strlen(hex);
 
     if (hex_len % 2 != 0) {
-      lua_pushnumber(L, hex_len);
         return NULL;  // Invalid hex string length
     }
 
@@ -124,14 +157,9 @@ static unsigned char* hex_to_bytes(const char* hex, size_t* out_len, lua_State* 
         bytes[i] = (unsigned char)strtol(byte_hex, NULL, 16);
     }
 
-    lua_print(L, "A3");
-    lua_pushnumber(L, bytes_len);
-    
     if (out_len) {
         *out_len = bytes_len;
     }
-
-    lua_print(L, "A4");
 
     return bytes;
 }
@@ -155,10 +183,10 @@ static int lua_verify_signature(lua_State* L) {
     const char* sig_hex_str = luaL_checkstring(L, 2);
     const char* pubkey_hex_str = luaL_checkstring(L, 3);
 
-    lua_printf(L, "Message: %s\n", message_str);
-    lua_printf(L, "Signature: %s\n", sig_hex_str);
-    lua_printf(L, "Signature hex length: %zu\n", strlen(sig_hex_str));
-    lua_printf(L, "Public key hex length: %zu\n", strlen(pubkey_hex_str));
+    // lua_printf(L, "Message: %s\n", message_str);
+    // lua_printf(L, "Signature: %s\n", sig_hex_str);
+    // lua_printf(L, "Signature hex length: %zu\n", strlen(sig_hex_str));
+    // lua_printf(L, "Public key hex length: %zu\n", strlen(pubkey_hex_str));
 
     unsigned char* message_hash = (unsigned char*)safe_calloc(32, sizeof(unsigned char));
     if (!message_hash) {
@@ -170,10 +198,10 @@ static int lua_verify_signature(lua_State* L) {
     sha256((const unsigned char*)message_str, strlen(message_str), message_hash);
 
     // Print hash for debugging
-    lua_print(L, "Message hash: ");
-    for(int i = 0; i < 32; i++) {
-        lua_printf(L, "%02x", message_hash[i]);
-    }
+    // lua_print(L, "Message hash: ");
+    // for(int i = 0; i < 32; i++) {
+    //     lua_printf(L, "%02x", message_hash[i]);
+    // }
 
     // Convert signature from hex
     size_t sig_len = 0;
@@ -184,9 +212,9 @@ static int lua_verify_signature(lua_State* L) {
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = signature;
-    lua_printf(L, "Decoded signature length: %zu\n", sig_len);
-    lua_printf(L, "Signature first bytes: %02x %02x %02x %02x\n", 
-           signature[0], signature[1], signature[2], signature[3]);
+    // lua_printf(L, "Decoded signature length: %zu\n", sig_len);
+    // lua_printf(L, "Signature first bytes: %02x %02x %02x %02x\n", 
+          //  signature[0], signature[1], signature[2], signature[3]);
 
     // Convert public key from hex
     size_t pubkey_len = 0;
@@ -197,9 +225,10 @@ static int lua_verify_signature(lua_State* L) {
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = pubkey;
-    lua_printf(L, "Decoded pubkey length: %zu\n", pubkey_len);
-    lua_printf(L, "Public key first bytes: %02x %02x %02x %02x\n", 
-           pubkey[0], pubkey[1], pubkey[2], pubkey[3]);
+
+    // lua_printf(L, "Decoded pubkey length: %zu\n", pubkey_len);
+    // lua_printf(L, "Public key first bytes: %02x %02x %02x %02x\n", 
+    //        pubkey[0], pubkey[1], pubkey[2], pubkey[3]);
 
     // Create and verify the secp256k1 context
     secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
@@ -221,14 +250,14 @@ static int lua_verify_signature(lua_State* L) {
     }
 
     // Validate public key format before parsing
-    lua_printf(L, "Validating public key format:\n");
-    lua_printf(L, "- Original hex length: %zu\n", strlen(pubkey_hex_str));
-    lua_printf(L, "- Decoded length: %zu (expected 33)\n", pubkey_len);
-    lua_printf(L, "- Full pubkey hex: ");
-    for(size_t i = 0; i < pubkey_len; i++) {
-        lua_printf(L, "%02x", pubkey[i]);
-    }
-    lua_printf(L, "\n");
+    // lua_printf(L, "Validating public key format:\n");
+    // lua_printf(L, "- Original hex length: %zu\n", strlen(pubkey_hex_str));
+    // lua_printf(L, "- Decoded length: %zu (expected 33)\n", pubkey_len);
+    // lua_printf(L, "- Full pubkey hex: ");
+    // for(size_t i = 0; i < pubkey_len; i++) {
+    //     lua_printf(L, "%02x", pubkey[i]);
+    // }
+    // lua_printf(L, "\n");
     
     if (pubkey_len != 33) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
@@ -245,11 +274,11 @@ static int lua_verify_signature(lua_State* L) {
     // Parse the public key with the fresh context
     secp256k1_pubkey pubkey_obj;
     int pubkey_parse_result = secp256k1_ec_pubkey_parse(ctx, &pubkey_obj, pubkey, pubkey_len);
-    lua_printf(L, "Public key parse result: %d\n", pubkey_parse_result);
+    // lua_printf(L, "Public key parse result: %d\n", pubkey_parse_result);
 
     // Verify the signature
     int verify_result = secp256k1_ecdsa_verify(ctx, &sig, message_hash, &pubkey_obj);
-    lua_printf(L, "Verification result 2: %d\n", verify_result);
+    // lua_printf(L, "Verification result 2: %d\n", verify_result);
 
     // Clean up the extra context
     secp256k1_context_destroy(ctx);
