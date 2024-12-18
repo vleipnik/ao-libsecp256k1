@@ -242,7 +242,7 @@ static int lua_verify_signature(lua_State* L) {
     // Parse the signature
     secp256k1_ecdsa_signature sig;
     int sig_parse_result = secp256k1_ecdsa_signature_parse_der(ctx, &sig, signature, sig_len);
-    lua_printf(L, "Signature parse result: %d\n", sig_parse_result);
+    // lua_printf(L, "Signature parse result: %d\n", sig_parse_result);
     if (sig_parse_result != 1) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
         lua_print(L, "Failed to parse signature");
