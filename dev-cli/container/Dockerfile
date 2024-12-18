@@ -107,7 +107,6 @@ RUN rm /opt/aolibc/aostdio.o
 # Build aolibc for 64-bit
 RUN cd /opt/aolibc && make CC="emcc -s WASM=1 -s MEMORY64=1 -s SUPPORT_LONGJMP=1 /lua-5.3.4/src/liblua.a -I/lua-5.3.4/src"
 
-
 ENV CC='emcc -s WASM=1'
 ENV NM='/emsdk/upstream/bin/llvm-nm'
 
@@ -115,7 +114,6 @@ ENV NM='/emsdk/upstream/bin/llvm-nm'
 # Build secp256k1 as a static library for WASM32
 #####
 COPY ./src/secp256k1 /opt/secp256k1
-
 ENV AR=emar
 ENV RANLIB=emranlib
 RUN apt-get install -y autoconf automake libtool
