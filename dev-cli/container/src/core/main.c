@@ -174,6 +174,36 @@ static void cleanup_memory(void** ptrs, size_t num_ptrs) {
     }
 }
 
+static int is_der_signature(const unsigned char* sig, size_t len) {
+    // Basic DER signature checks:
+    // 1. Minimum length for DER signature (7 bytes)
+    // 2. Starts with 0x30 (SEQUENCE)
+    // 3. Second byte is length
+    // 4. Two INTEGER markers (0x02)
+    if (len < 7 || sig[0] != 0x30) {
+        return 0;
+    }
+    
+    // Check if total length matches DER length byte
+    size_t stated_len = sig[1];
+    if (stated_len > len - 2) {  // -2 for header bytes
+        return 0;
+    }
+    
+    // Check for INTEGER markers
+    if (sig[2] != 0x02) {
+        return 0;
+    }
+    
+    // Find second INTEGER marker
+    size_t first_int_len = sig[3];
+    if (4 + first_int_len >= len || sig[4 + first_int_len] != 0x02) {
+        return 0;
+    }
+    
+    return 1;
+}
+
 static int lua_verify_signature(lua_State* L) {
     void* cleanup_ptrs[4] = {NULL};
     size_t cleanup_count = 0;
@@ -183,15 +213,11 @@ static int lua_verify_signature(lua_State* L) {
     const char* sig_hex_str = luaL_checkstring(L, 2);
     const char* pubkey_hex_str = luaL_checkstring(L, 3);
 
-    // Verify signature length (64 bytes in hex = 128 characters)
-    if (strlen(sig_hex_str) != 128) {
-        lua_print(L, "Raw signature must be exactly 64 bytes (128 hex characters)");
-        return 1;
-    }
-
+    // Allocate message hash
     unsigned char* message_hash = (unsigned char*)safe_calloc(32, sizeof(unsigned char));
     if (!message_hash) {
         lua_print(L, "Memory allocation failed for message hash");
+        lua_pushinteger(L, -1);
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = message_hash;
@@ -202,12 +228,24 @@ static int lua_verify_signature(lua_State* L) {
     // Convert signature from hex
     size_t sig_len = 0;
     unsigned char* signature = hex_to_bytes(sig_hex_str, &sig_len, L);
-    if (!signature || sig_len != 64) {  // Raw signature should be exactly 64 bytes
+    if (!signature) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Failed to decode signature hex or invalid length");
+        lua_print(L, "Failed to decode signature hex");
+        lua_pushinteger(L, -1);
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = signature;
+
+    // Detect signature format
+    int is_der = is_der_signature(signature, sig_len);
+    
+    // Validate signature length based on format
+    if (!is_der && sig_len != 64) {
+        cleanup_memory(cleanup_ptrs, cleanup_count);
+        lua_print(L, "Raw signature must be exactly 64 bytes");
+        lua_pushinteger(L, -1);
+        return 1;
+    }
 
     // Convert public key from hex
     size_t pubkey_len = 0;
@@ -215,6 +253,7 @@ static int lua_verify_signature(lua_State* L) {
     if (!pubkey) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
         lua_print(L, "Failed to decode public key hex");
+        lua_pushinteger(L, -1);
         return 1;
     }
     cleanup_ptrs[cleanup_count++] = pubkey;
@@ -224,28 +263,45 @@ static int lua_verify_signature(lua_State* L) {
     if (!ctx) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
         lua_print(L, "Failed to create secp256k1 context");
+        lua_pushinteger(L, -1);
         return 1;
     }
+    cleanup_ptrs[cleanup_count++] = ctx;
 
-    // Parse the raw signature using compact format (R,S)
+    // Parse the signature according to its format
     secp256k1_ecdsa_signature sig;
-    int sig_parse_result = secp256k1_ecdsa_signature_parse_compact(ctx, &sig, signature);
-    if (sig_parse_result != 1) {
-        cleanup_memory(cleanup_ptrs, cleanup_count);
-        lua_print(L, "Failed to parse raw signature");
-        return 1;
+    int sig_parse_result;
+    
+    if (is_der) {
+        sig_parse_result = secp256k1_ecdsa_signature_parse_der(ctx, &sig, signature, sig_len);
+        if (sig_parse_result != 1) {
+            cleanup_memory(cleanup_ptrs, cleanup_count);
+            lua_print(L, "Failed to parse DER signature");
+            lua_pushinteger(L, -1);
+            return 1;
+        }
+    } else {
+        sig_parse_result = secp256k1_ecdsa_signature_parse_compact(ctx, &sig, signature);
+        if (sig_parse_result != 1) {
+            cleanup_memory(cleanup_ptrs, cleanup_count);
+            lua_print(L, "Failed to parse raw signature");
+            lua_pushinteger(L, -1);
+            return 1;
+        }
     }
 
     // Validate public key format
     if (pubkey_len != 33) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
         lua_print(L, "Public key must be 33 bytes (compressed format)");
+        lua_pushinteger(L, -1);
         return 1;
     }
     
     if (pubkey[0] != 0x02 && pubkey[0] != 0x03) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
         lua_print(L, "Public key must start with 0x02 or 0x03 (compressed format)");
+        lua_pushinteger(L, -1);
         return 1;
     }
 
@@ -255,6 +311,7 @@ static int lua_verify_signature(lua_State* L) {
     if (pubkey_parse_result != 1) {
         cleanup_memory(cleanup_ptrs, cleanup_count);
         lua_print(L, "Failed to parse public key");
+        lua_pushinteger(L, -1);
         return 1;
     }
 
@@ -263,11 +320,13 @@ static int lua_verify_signature(lua_State* L) {
 
     // Clean up the context
     secp256k1_context_destroy(ctx);
+    cleanup_ptrs[3] = NULL;
+    cleanup_count--;
 
     // Clean up allocated memory
     cleanup_memory(cleanup_ptrs, cleanup_count);
 
-    // Return result
+    // Return verification result: 1 for success, 0 for invalid signature
     lua_pushboolean(L, verify_result == 1);
     return 1;
 }
