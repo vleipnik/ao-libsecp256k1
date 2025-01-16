@@ -15,6 +15,7 @@
 #endif
 
 #include "secp256k1.h"
+#include "secp256k1_recovery.h"
 
 // Included a sha256 implementation to avoid having to include openssl
 void sha256(const unsigned char *data, size_t len, unsigned char *out);
@@ -331,6 +332,85 @@ static int lua_verify_signature(lua_State* L) {
     return 1;
 }
 
+
+static int recover_public_key(lua_State* L) {
+    // Get parameters from Lua stack
+    const char* sig_hex = luaL_checkstring(L, 1);     // 65 bytes signature in hex (130 chars)
+    const char* msg_hash_hex = luaL_checkstring(L, 2); // 32 bytes message hash in hex (64 chars)
+    int cleanup = lua_toboolean(L, 3);                // optional cleanup flag
+
+    // Validate input lengths
+    if (strlen(sig_hex) != 130) {
+        return luaL_error(L, "signature must be exactly 130 characters");
+    }
+    if (strlen(msg_hash_hex) != 64) {
+        return luaL_error(L, "message hash must be exactly 64 characters");
+    }
+
+    // Initialize context if needed
+    secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY | SECP256K1_CONTEXT_SIGN);
+    if (ctx == NULL) {
+        return luaL_error(L, "failed to create secp256k1 context");
+    }
+
+    // Convert hex signature to bytes (excluding last byte which is recovery_id)
+    unsigned char sig[64];
+    for (int i = 0; i < 64; i++) {
+        sscanf(&sig_hex[i * 2], "%2hhx", &sig[i]);
+    }
+
+    // Extract recovery_id from last byte of signature
+    unsigned char recovery_byte;
+    sscanf(&sig_hex[128], "%2hhx", &recovery_byte);
+    int recovery_id = recovery_byte - 27;  // Convert from Ethereum-style encoding
+
+    // Validate recovery_id
+    if (recovery_id < 0 || recovery_id > 3) {
+        return luaL_error(L, "invalid recovery id in signature (must be 27 or 28)");
+    }
+
+    // Convert hex message hash to bytes
+    unsigned char msg_hash[32];
+    for (int i = 0; i < 32; i++) {
+        sscanf(&msg_hash_hex[i * 2], "%2hhx", &msg_hash[i]);
+    }
+
+    // Parse the signature
+    secp256k1_ecdsa_recoverable_signature sig_parsed;
+    if (!secp256k1_ecdsa_recoverable_signature_parse_compact(ctx, &sig_parsed, sig, recovery_id)) {
+        return luaL_error(L, "failed to parse signature");
+    }
+
+    // Recover the public key
+    secp256k1_pubkey pubkey;
+    if (!secp256k1_ecdsa_recover(ctx, &pubkey, &sig_parsed, msg_hash)) {
+        return luaL_error(L, "failed to recover public key");
+    }
+
+    // Serialize the public key in uncompressed format
+    unsigned char pubkey_ser[65];
+    size_t pubkey_len = sizeof(pubkey_ser);
+    secp256k1_ec_pubkey_serialize(ctx, pubkey_ser, &pubkey_len, &pubkey, SECP256K1_EC_UNCOMPRESSED);
+
+    // Convert public key to hex
+    char pubkey_hex[131];  // 65 bytes * 2 + 1 for null terminator
+    for (size_t i = 0; i < 65; i++) {
+        sprintf(&pubkey_hex[i * 2], "%02x", pubkey_ser[i]);
+    }
+    pubkey_hex[130] = '\0';
+
+    // Clean up if requested
+    if (cleanup && ctx != NULL) {
+        secp256k1_context_destroy(ctx);
+        ctx = NULL;
+    }
+
+    // Push the result to Lua
+    lua_pushstring(L, pubkey_hex);
+    return 1;
+}
+
+
   /* Copied from lua.c */
 
   static lua_State *globalL = NULL;
@@ -425,7 +505,7 @@ static int lua_verify_signature(lua_State* L) {
     lua_setfield(L, -2, "__lua_webassembly__");
 
     lua_register(wasm_lua_state, "verify_signature", lua_verify_signature);
-    // lua_register(wasm_lua_state, "get_string", get_string);
+    lua_register(wasm_lua_state, "recover_public_key", recover_public_key);
 
     // This place will be injected by emcc-lua
     __INJECT_LUA_FILES__
